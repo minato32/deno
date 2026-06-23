@@ -29,8 +29,11 @@ const {
   Promise,
   PromiseResolve,
   queueMicrotask,
+  ReflectApply,
   SafeArrayIterator,
   SafeSet,
+  StringFromCharCode,
+  StringPrototypeCharCodeAt,
   Symbol,
   SymbolFor,
   SymbolIterator,
@@ -645,7 +648,7 @@ const serializeErrorCb = (err) => {
 // --- Primitive structured-clone fast path -------------------------------
 //
 // For the common no-transferables case where the payload is a primitive
-// (undefined / null / boolean / number), V8's ValueSerializer +
+// (undefined / null / boolean / number / string), V8's ValueSerializer +
 // ValueDeserializer round-trip (two builtin op calls into C++, plus a buffer
 // allocation) dominates the cost of moving the message. This is exactly the
 // latency-bound worker_threads ping-pong pattern.
@@ -657,9 +660,9 @@ const serializeErrorCb = (err) => {
 // encodings can never be confused: any buffer whose first byte isn't 0xFE is a
 // regular V8 stream and goes through `core.deserialize` unchanged.
 //
-// Strings and bigints intentionally fall back to V8 (they would require an
-// encode/decode op round-trip of their own, defeating the purpose). Objects,
-// functions and symbols are not fast primitives either.
+// Strings are encoded as raw UTF-16 code units so JS string semantics are
+// preserved exactly, including lone surrogates. Bigints, objects, functions and
+// symbols are not fast primitives.
 const FAST_MARKER = 0xFE;
 const FAST_UNDEFINED = 0;
 const FAST_NULL = 1;
@@ -667,6 +670,8 @@ const FAST_FALSE = 2;
 const FAST_TRUE = 3;
 const FAST_INT32 = 4;
 const FAST_DOUBLE = 5;
+const FAST_STRING = 6;
+const FAST_STRING_CHUNK = 0x8000;
 
 // Scratch union buffer used to read/write the raw bytes of an f64. Sender and
 // receiver always run on the same machine, so native byte order is consistent
@@ -713,6 +718,22 @@ function fastSerialize(value) {
       TypedArrayPrototypeSet(b, fastF64Bytes, 2);
       return b;
     }
+    case "string": {
+      const length = value.length;
+      const b = new Uint8Array(6 + length * 2);
+      b[0] = FAST_MARKER;
+      b[1] = FAST_STRING;
+      b[2] = length & 0xFF;
+      b[3] = (length >>> 8) & 0xFF;
+      b[4] = (length >>> 16) & 0xFF;
+      b[5] = (length >>> 24) & 0xFF;
+      for (let i = 0, j = 6; i < length; i++, j += 2) {
+        const code = StringPrototypeCharCodeAt(value, i);
+        b[j] = code & 0xFF;
+        b[j + 1] = code >>> 8;
+      }
+      return b;
+    }
     default:
       return undefined;
   }
@@ -744,6 +765,22 @@ function fastDeserialize(buffer) {
       fastF64Bytes[6] = buffer[8];
       fastF64Bytes[7] = buffer[9];
       return fastF64[0];
+    case FAST_STRING: {
+      const length = (buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) |
+        (buffer[5] << 24)) >>> 0;
+      let result = "";
+      for (let i = 0, j = 6; i < length;) {
+        const chunkLength = length - i > FAST_STRING_CHUNK
+          ? FAST_STRING_CHUNK
+          : length - i;
+        const codes = [];
+        for (let k = 0; k < chunkLength; k++, i++, j += 2) {
+          ArrayPrototypePush(codes, buffer[j] | (buffer[j + 1] << 8));
+        }
+        result += ReflectApply(StringFromCharCode, null, codes);
+      }
+      return result;
+    }
     default:
       throw new TypeError("Invalid fast message encoding");
   }

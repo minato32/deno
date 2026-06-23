@@ -10,9 +10,10 @@ const {
   op_host_post_message_raw,
   op_host_recv_ctrl,
   op_host_recv_message,
-  op_host_recv_message_sync,
+  op_host_register_message_dispatch,
   op_host_terminate_worker,
   op_mark_as_untransferable,
+  op_message_dispatch_unregister,
   op_message_port_post_message_raw,
   op_message_port_recv_message,
   op_message_port_recv_message_sync,
@@ -732,25 +733,34 @@ class NodeWorker extends EventEmitter {
   }
 
   #pollMessages = async () => {
-    while (this.#status !== "TERMINATED") {
-      this.#messagePromise = op_host_recv_message(this.#id);
-      if (!this.#refed) {
-        core.unrefOpPromise(this.#messagePromise);
+    // Message delivery is driven from the Rust event loop: register this
+    // worker's host port + dispatcher so the runtime drains the queue and calls
+    // `#dispatchWorkerThreadMessage` directly, with no per-message Promise. The
+    // recv op below stays pending as the keep-alive / ref-unref anchor and
+    // resolves `null` only on close. The dispatcher guards on the TERMINATED
+    // state since the Rust pump may still hold already-queued messages after
+    // terminate().
+    const dispatchId = op_host_register_message_dispatch(
+      this.#id,
+      (data) => {
+        if (this.#status !== "TERMINATED") {
+          this.#dispatchWorkerThreadMessage(data);
+        }
+      },
+    );
+    try {
+      while (this.#status !== "TERMINATED") {
+        this.#messagePromise = op_host_recv_message(this.#id);
+        if (!this.#refed) {
+          core.unrefOpPromise(this.#messagePromise);
+        }
+        const data = await this.#messagePromise;
+        if (this.#status === "TERMINATED" || data === null) {
+          return;
+        }
       }
-      const data = await this.#messagePromise;
-      if (this.#status === "TERMINATED" || data === null) {
-        return;
-      }
-      if (!this.#dispatchWorkerThreadMessage(data)) return;
-      // Sync drain: process a limited batch of already-queued messages
-      // without going through the async op machinery. The batch limit
-      // prevents starvation of the event loop when message handlers
-      // synchronously post new messages (e.g. ping-pong patterns).
-      for (let i = 0; i < 1000 && this.#status !== "TERMINATED"; i++) {
-        const syncData = op_host_recv_message_sync(this.#id);
-        if (syncData === null) break;
-        if (!this.#dispatchWorkerThreadMessage(syncData)) return;
-      }
+    } finally {
+      op_message_dispatch_unregister(dispatchId);
     }
   };
 

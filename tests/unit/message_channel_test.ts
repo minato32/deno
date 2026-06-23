@@ -31,8 +31,8 @@ Deno.test("messagechannel", async () => {
 Deno.test("messagechannel primitive fast path", async () => {
   // Primitives take a custom encoding that bypasses V8's structured-clone
   // serializer; verify a representative spread round-trips exactly, including
-  // the tricky cases (-0, NaN, +/-Infinity, int32 boundaries) and the values
-  // that intentionally fall back to V8 (strings, bigints).
+  // the tricky cases (-0, NaN, +/-Infinity, int32 boundaries, strings with
+  // lone surrogates) and a bigint that intentionally falls back to V8.
   const mc = new MessageChannel();
   const values: unknown[] = [
     undefined,
@@ -59,8 +59,11 @@ Deno.test("messagechannel primitive fast path", async () => {
     Infinity,
     -Infinity,
     NaN,
-    "", // string -> V8 fallback
+    "",
     "hello world",
+    "\uD800",
+    "\uDC00",
+    "\uD83D\uDE00",
     123n, // bigint -> V8 fallback
   ];
   // Expected received values. These match `values` except for `undefined`:
