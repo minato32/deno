@@ -34,6 +34,21 @@
       "args": "check --quiet unsuppressed.ts",
       "output": "unsuppressed.out",
       "exitCode": 1
+    },
+    "ts_ignore_dts": {
+      "args": "check --quiet ts_ignore_dts.d.ts",
+      "output": "",
+      "exitCode": 0
+    },
+    "ts_expect_error_dts": {
+      "args": "check --quiet ts_expect_error_dts.d.ts",
+      "output": "",
+      "exitCode": 0
+    },
+    "unsuppressed_dts": {
+      "args": "check --quiet unsuppressed_dts.d.ts",
+      "output": "unsuppressed_dts.out",
+      "exitCode": 1
     }
   }
 }

@@ -1330,25 +1330,31 @@ impl<'a> GraphWalker<'a> {
           Ok(specifier) => {
             let specifier = self.graph.resolve(&specifier);
             if self.graph.try_get(specifier).ok().flatten().is_none() {
-              self.missing_diagnostics.push(
+              // Route through `push_missing_diagnostic` so a preceding
+              // `@ts-expect-error` / `@ts-ignore` in the `.d.ts` suppresses
+              // it, matching the `.ts` path (the missing-import loop).
+              self.push_missing_diagnostic(
                 tsc::Diagnostic::from_missing_error(
                   specifier.as_str(),
                   Some(&range),
                   maybe_additional_sloppy_imports_message(self.sys, specifier),
                 ),
+                Some(&range),
               );
             }
           }
           Err(error) => {
-            let resolution_error =
-              ResolutionError::InvalidSpecifier { error, range };
+            let resolution_error = ResolutionError::InvalidSpecifier {
+              error,
+              range: range.clone(),
+            };
             if let Some(diagnostic) =
               tsc::Diagnostic::maybe_from_resolution_error(
                 &resolution_error,
                 self.bare_importable_pkg_names,
               )
             {
-              self.missing_diagnostics.push(diagnostic);
+              self.push_missing_diagnostic(diagnostic, Some(&range));
             }
           }
         }
