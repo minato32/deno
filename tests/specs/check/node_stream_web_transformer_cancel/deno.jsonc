@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    // "dom" provides the web globals instead of "deno.window", and
+    // lib.dom.d.ts does not declare TransformerCancelCallback. The bundled
+    // node:stream/web types must not alias it to globalThis or checking the
+    // node lib fails with TS2724.
+    "lib": ["dom", "deno.ns", "node"]
+  }
+}

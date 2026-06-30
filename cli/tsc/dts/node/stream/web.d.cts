@@ -56,7 +56,9 @@ declare module "stream/web" {
     type TransformerFlushCallback<O> = globalThis.TransformerFlushCallback<O>;
     type TransformerStartCallback<O> = globalThis.TransformerStartCallback<O>;
     type TransformerTransformCallback<I, O> = globalThis.TransformerTransformCallback<I, O>;
-    type TransformerCancelCallback = globalThis.TransformerCancelCallback;
+    interface TransformerCancelCallback {
+        (reason: any): void | PromiseLike<void>;
+    }
     type UnderlyingByteSource = globalThis.UnderlyingByteSource;
     type UnderlyingSource<R = any> = globalThis.UnderlyingSource<R>;
     type UnderlyingSink<W = any> = globalThis.UnderlyingSink<W>;

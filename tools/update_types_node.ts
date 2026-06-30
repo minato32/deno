@@ -282,12 +282,24 @@ function modifySourceFiles() {
 }
 
 // Collect the names Deno declares as Web Platform globals (from
-// `lib.deno_web.d.ts`). These are what `node:stream/web` should alias to.
+// `lib.deno_web.d.ts`) that are also standard DOM globals (from
+// `lib.dom.d.ts`). These are what `node:stream/web` should alias to.
+//
+// The alias target (`globalThis.X`) must resolve no matter which web lib the
+// user's `compilerOptions.lib` pulls in — Deno's `deno.window` or TypeScript's
+// `dom`. Names that exist only in Deno's lib (e.g. `TransformerCancelCallback`,
+// which `lib.dom.d.ts` doesn't declare) would dangle under a `dom`-based config
+// and surface as `TS2724`, so they keep their upstream `@types/node`
+// declaration instead of being aliased.
 function getWebGlobalNames(): Set<string> {
+  const denoWebNames = collectDeclaredNames(dtsDir.join("lib.deno_web.d.ts"));
+  const domNames = collectDeclaredNames(dtsDir.join("lib.dom.d.ts"));
+  return new Set([...denoWebNames].filter((name) => domNames.has(name)));
+}
+
+function collectDeclaredNames(path: Path): Set<string> {
   const project = new Project({ skipAddingFilesFromTsConfig: true });
-  const sourceFile = project.addSourceFileAtPath(
-    dtsDir.join("lib.deno_web.d.ts").toString(),
-  );
+  const sourceFile = project.addSourceFileAtPath(path.toString());
   const names = new Set<string>();
   for (const decl of sourceFile.getInterfaces()) {
     names.add(decl.getName());
